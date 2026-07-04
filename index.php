@@ -603,6 +603,53 @@ switch ($action) {
         }
         json_out(['issues' => $clean, 'usage' => ['today' => ai_used_today($db, $auth['user']), 'cap' => $cap]]);
 
+    case 'sqlcheck':
+        // 学習用: コード内SQLの危険(エスケープ/注入)を指摘し、悪い入力での「展開後SQL」を見せる。
+        check_csrf();
+        if (empty($CONFIG['openai_api_key'])) { json_out(['error' => 'AI未設定です']); }
+        $body = json_decode(file_get_contents('php://input'), true);
+        $content = (string)($body['content'] ?? '');
+        $filename = (string)($body['filename'] ?? 'file');
+        if (trim($content) === '') { json_out(['issues' => []]); }
+
+        $cap = (int)($CONFIG['ai_daily_token_cap'] ?? 100000);
+        try { $db = ai_db(); } catch (Throwable $e) { json_out(['error' => 'usage db error']); }
+        if (ai_used_today($db, $auth['user']) >= $cap) { json_out(['error' => '本日のAI利用上限に達しました。']); }
+
+        $models = ai_models($CONFIG);
+        $model = $models['mini'] ?? 'gpt-4o-mini';
+        $numbered = '';
+        foreach (explode("\n", $content) as $i => $l) { $numbered .= ($i + 1) . "\t" . $l . "\n"; }
+
+        $sys = "あなたはWebセキュリティを教える先生です。PHPコード内のSQL(文字列連結や変数展開で組み立てるクエリ)に注目し、"
+             . "エスケープ不足やSQLインジェクションの危険を指摘します。修正後の完成コードそのものは書かず、学生が『危ない』と自分で気づけるようにします。"
+             . "各指摘では、危険な入力を1つ例示し、その入力でSQL文字列が実際にどうなるか(展開後の例)を必ず短く示してください。"
+             . "hint は Markdown可。展開後のSQLは ``` で囲んだコードブロックで示す。プレースホルダ(prepared statement / PDO)という方向性は示してよいが、答えの完成コードは書かない。"
+             . "SQLに関する危険が無ければ issues は空配列。"
+             . "severity は、インジェクション可能・クエリが壊れる等の致命的は \"error\"、軽微/一般的注意は \"warn\"、気づき程度は \"info\"。"
+             . "厳密なJSONだけを返す: {\"issues\":[{\"line\":整数, \"hint\":\"Markdownの短い説明(危険な入力例と展開後SQL)\", \"severity\":\"error|warn|info\"}]}";
+        $usr = "ファイル名: {$filename}\n各行は「行番号<TAB>コード」の形式です。\n----\n{$numbered}";
+
+        $res = ai_openai_plain($CONFIG, $model, [
+            ['role' => 'system', 'content' => $sys],
+            ['role' => 'user',   'content' => $usr],
+        ]);
+        if (!$res['ok']) { json_out(['error' => $res['error']]); }
+        $data = $res['data'];
+        $tokens = (int)($data['usage']['total_tokens'] ?? 0);
+        if ($tokens > 0) { ai_add_usage($db, $auth['user'], $tokens); }
+
+        $parsed = json_decode($data['choices'][0]['message']['content'] ?? '{}', true);
+        $issues = is_array($parsed['issues'] ?? null) ? $parsed['issues'] : [];
+        $clean = [];
+        foreach ($issues as $it) {
+            $ln = (int)($it['line'] ?? 0);
+            if ($ln < 1) continue;
+            $sev = in_array(($it['severity'] ?? ''), ['error', 'warn', 'info'], true) ? $it['severity'] : 'info';
+            $clean[] = ['line' => $ln, 'hint' => (string)($it['hint'] ?? ''), 'severity' => $sev];
+        }
+        json_out(['issues' => $clean, 'usage' => ['today' => ai_used_today($db, $auth['user']), 'cap' => $cap]]);
+
     case 'app':
     default:
         // メインUI(Monacoエディタ)

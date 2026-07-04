@@ -40,6 +40,10 @@
   .ai-hint-glyph { cursor:help; }
   .ai-hint-glyph::before { content:'💡'; font-size:11px; margin-left:1px; }
   .ai-hint-linedeco { background:#e0b34d66; width:3px !important; margin-left:3px; }
+  .ai-hint-linedeco-err { background:#e0555566; width:3px !important; margin-left:3px; }
+  .ai-glyph-sql, .ai-glyph-sql-err { cursor:help; }
+  .ai-glyph-sql::before { content:'🗄'; font-size:11px; margin-left:1px; }
+  .ai-glyph-sql-err::before { content:'🚨'; font-size:11px; margin-left:1px; }
 
   /* AI確認中インジケータ */
   #aibusy { display:none; position:fixed; top:58px; left:50%; transform:translateX(-50%); z-index:75;
@@ -152,6 +156,7 @@
   <button onclick="toggleAI()">🤖 AI</button>
 <?php endif; ?>
   <button id="aihintbtn" onclick="aiCheck()" title="AIが問題点をヒントで指摘します（答えは言いません・学習用）">🔎 AIヒント</button>
+  <button id="sqlbtn" onclick="sqlCheck()" title="コード内のSQLの危険（エスケープ/インジェクション）を指摘し、悪い入力での展開例を見せます">🗄 SQLチェック</button>
   <input type="file" id="up" multiple onchange="uploadFile(this)">
   <button onclick="userMenu(event)" title="アカウント">👤 <?= $u ?> ▾</button>
 </header>
@@ -552,6 +557,35 @@ async function aiCheck(){
   if(d.usage){ document.getElementById('aiusage').textContent=d.usage.today+' / '+d.usage.cap+' tok'; }
   const total=markers.length+decos.length;
   S(total ? ('AIヒント '+total+'件（重大は赤波線、その他は左端の 💡・ホバーで表示）') : 'AIは目立った問題を見つけませんでした（保証はしません）');
+}
+
+// 学習用: コード内SQLの危険を指摘 + 悪い入力での「展開後SQL」をホバー(Markdown)で表示
+async function sqlCheck(){
+  if(PREVIEWING || !CURFILE){ S('チェックするファイルを開いてください'); return; }
+  const btn=document.getElementById('sqlbtn'), busy=document.getElementById('aibusy');
+  const orig=btn.textContent; btn.disabled=true; btn.textContent='🗄 確認中…'; busy.classList.add('show'); S('AIがSQLを確認中…');
+  let d=null;
+  try{
+    const r=await fetch('?action=sqlcheck',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF':CSRF},body:JSON.stringify({content:editor.getValue(), filename:CURFILE})});
+    d=await r.json();
+  }catch(e){ S('通信エラー: '+e.message); }
+  finally{ btn.disabled=false; btn.textContent=orig; busy.classList.remove('show'); }
+  if(!d) return;
+  if(d.error){ S('⚠ '+d.error); return; }
+  clearAiHints();
+  const decos=(d.issues||[]).map(it=>{
+    const ln=Math.max(1, it.line), isErr=(it.severity==='error');
+    return { range:new monaco.Range(ln,1,ln,1), options:{
+      isWholeLine:true,
+      glyphMarginClassName: isErr?'ai-glyph-sql-err':'ai-glyph-sql',
+      glyphMarginHoverMessage:{ value: it.hint },   // Markdown(展開後SQLをコードで表示)
+      linesDecorationsClassName: isErr?'ai-hint-linedeco-err':'ai-hint-linedeco',
+      overviewRuler:{ color: isErr?'#e05555':'#e0b34d', position:monaco.editor.OverviewRulerLane.Right }
+    }};
+  });
+  aiDecos = editor.createDecorationsCollection(decos);
+  if(d.usage){ document.getElementById('aiusage').textContent=d.usage.today+' / '+d.usage.cap+' tok'; }
+  S(decos.length ? ('SQLの指摘 '+decos.length+'件：該当行の左端アイコン(🗄/🚨)にマウスを乗せると展開例が出ます') : 'AIは目立ったSQLの問題を見つけませんでした（保証はしません）');
 }
 const aimsgs = ()=>document.getElementById('aimsgs');
 function aiScroll(){ const e=aimsgs(); e.scrollTop=e.scrollHeight; }
