@@ -299,51 +299,103 @@ function ai_tools(): array {
     ];
 }
 
-function ai_openai_call(array $CONFIG, string $model, array $messages): array {
-    $ch = curl_init('https://api.openai.com/v1/chat/completions');
+// OpenAI Responses API に POST(GPT-5系は chat/completions 非対応=codex等。responsesに統一)。
+function ai_responses_post(array $CONFIG, array $payload): array {
+    $ch = curl_init('https://api.openai.com/v1/responses');
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => [
-            'Authorization: Bearer ' . $CONFIG['openai_api_key'],
-            'Content-Type: application/json',
-        ],
-        CURLOPT_POSTFIELDS => json_encode([
-            'model' => $model,
-            'messages' => $messages,
-            'tools' => ai_tools(),
-            'tool_choice' => 'auto',
-        ], JSON_UNESCAPED_UNICODE),
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $CONFIG['openai_api_key'], 'Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 120,
     ]);
-    $raw = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err = curl_error($ch);
-    curl_close($ch);
+    $raw = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
     if ($raw === false) { return ['ok'=>false, 'error'=>'network: ' . $err]; }
     $j = json_decode($raw, true);
     if ($code !== 200) { return ['ok'=>false, 'error'=>'openai ' . $code . ': ' . ($j['error']['message'] ?? substr((string)$raw,0,300))]; }
     return ['ok'=>true, 'data'=>$j];
 }
+// chat/completions 形式のツール定義 → Responses 形式(flat)
+function chat_tools_to_responses(array $tools): array {
+    $out = [];
+    foreach ($tools as $t) {
+        $f = $t['function'] ?? [];
+        $out[] = ['type'=>'function', 'name'=>$f['name'] ?? '', 'description'=>$f['description'] ?? '',
+                  'parameters'=>$f['parameters'] ?? ['type'=>'object','properties'=>new stdClass()]];
+    }
+    return $out;
+}
+// フロント由来の chat 形式メッセージ列 → Responses の input 形式
+function chat_to_responses_input(array $messages): array {
+    $input = [];
+    foreach ($messages as $m) {
+        $role = $m['role'] ?? '';
+        if ($role === 'tool') {
+            $input[] = ['type'=>'function_call_output', 'call_id'=>(string)($m['tool_call_id'] ?? ''), 'output'=>(string)($m['content'] ?? '')];
+        } elseif ($role === 'assistant' && !empty($m['tool_calls'])) {
+            if (!empty($m['content'])) { $input[] = ['role'=>'assistant', 'content'=>(string)$m['content']]; }
+            foreach ($m['tool_calls'] as $tc) {
+                $input[] = ['type'=>'function_call', 'call_id'=>(string)($tc['id'] ?? ''),
+                            'name'=>(string)($tc['function']['name'] ?? ''), 'arguments'=>(string)($tc['function']['arguments'] ?? '{}')];
+            }
+        } else {
+            $input[] = ['role'=>($role ?: 'user'), 'content'=>(string)($m['content'] ?? '')];
+        }
+    }
+    return $input;
+}
+// Responses の output からテキスト(JSON応答用)を取り出す
+function responses_output_text(array $data): string {
+    $text = '';
+    foreach ($data['output'] ?? [] as $item) {
+        if (($item['type'] ?? '') === 'message') {
+            foreach ($item['content'] ?? [] as $c) {
+                if (($c['type'] ?? '') === 'output_text') { $text .= $c['text'] ?? ''; }
+            }
+        }
+    }
+    return $text;
+}
+// Responses の output → フロントが期待する chat 形式の assistant メッセージ(content + tool_calls)
+function responses_to_chat_message(array $data): array {
+    $content = ''; $tool_calls = [];
+    foreach ($data['output'] ?? [] as $item) {
+        $t = $item['type'] ?? '';
+        if ($t === 'message') {
+            foreach ($item['content'] ?? [] as $c) {
+                if (($c['type'] ?? '') === 'output_text') { $content .= $c['text'] ?? ''; }
+            }
+        } elseif ($t === 'function_call') {
+            $tool_calls[] = ['id'=>(string)($item['call_id'] ?? ''), 'type'=>'function',
+                             'function'=>['name'=>(string)($item['name'] ?? ''), 'arguments'=>(string)($item['arguments'] ?? '{}')]];
+        }
+    }
+    $msg = ['role'=>'assistant', 'content'=>$content];
+    if ($tool_calls) { $msg['tool_calls'] = $tool_calls; }
+    return $msg;
+}
+// 生成AI(tool使用)。Responses API を叩き、フロント互換の {message, tokens} を返す。
+function ai_openai_call(array $CONFIG, string $model, array $messages): array {
+    $res = ai_responses_post($CONFIG, [
+        'model' => $model,
+        'input' => chat_to_responses_input($messages),
+        'tools' => chat_tools_to_responses(ai_tools()),
+        'tool_choice' => 'auto',
+    ]);
+    if (!$res['ok']) { return $res; }
+    $d = $res['data'];
+    return ['ok'=>true, 'message'=>responses_to_chat_message($d), 'tokens'=>(int)($d['usage']['total_tokens'] ?? 0)];
+}
 
 // tool無し・JSON応答固定のプレーン呼び出し(AIヒントチェック用)
 function ai_openai_plain(array $CONFIG, string $model, array $messages): array {
-    $ch = curl_init('https://api.openai.com/v1/chat/completions');
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $CONFIG['openai_api_key'], 'Content-Type: application/json'],
-        CURLOPT_POSTFIELDS => json_encode([
-            'model' => $model,
-            'messages' => $messages,
-            'response_format' => ['type' => 'json_object'],
-        ], JSON_UNESCAPED_UNICODE),
-        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+    $res = ai_responses_post($CONFIG, [
+        'model' => $model,
+        'input' => $messages,
+        'text'  => ['format' => ['type' => 'json_object']],
     ]);
-    $raw = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
-    if ($raw === false) { return ['ok'=>false, 'error'=>'network: ' . $err]; }
-    $j = json_decode($raw, true);
-    if ($code !== 200) { return ['ok'=>false, 'error'=>'openai ' . $code . ': ' . ($j['error']['message'] ?? substr((string)$raw,0,200))]; }
-    return ['ok'=>true, 'data'=>$j];
+    if (!$res['ok']) { return $res; }
+    return ['ok'=>true, 'text'=>responses_output_text($res['data']), 'tokens'=>(int)($res['data']['usage']['total_tokens'] ?? 0)];
 }
 
 // ================= ルーティング =================
@@ -544,14 +596,10 @@ switch ($action) {
 
         $res = ai_openai_call($CONFIG, $model, $messages);
         if (!$res['ok']) { json_out(['error' => $res['error']]); }
-
-        $data = $res['data'];
-        $tokens = (int)($data['usage']['total_tokens'] ?? 0);
+        $tokens = (int)$res['tokens'];
         if ($tokens > 0) { ai_add_usage($db, $auth['user'], $tokens); }
-
-        $choice = $data['choices'][0]['message'] ?? ['role'=>'assistant','content'=>''];
         json_out([
-            'message' => $choice,           // assistant message(content と tool_calls をそのまま返す)
+            'message' => $res['message'],   // assistant message(content と tool_calls)
             'model'   => $model,
             'usage'   => ['today' => $used + $tokens, 'cap' => $cap, 'this_call' => $tokens],
         ]);
@@ -588,11 +636,10 @@ switch ($action) {
             ['role' => 'user',   'content' => $usr],
         ]);
         if (!$res['ok']) { json_out(['error' => $res['error']]); }
-        $data = $res['data'];
-        $tokens = (int)($data['usage']['total_tokens'] ?? 0);
+        $tokens = (int)$res['tokens'];
         if ($tokens > 0) { ai_add_usage($db, $auth['user'], $tokens); }
 
-        $parsed = json_decode($data['choices'][0]['message']['content'] ?? '{}', true);
+        $parsed = json_decode(($res['text'] ?? '') ?: '{}', true);
         $issues = is_array($parsed['issues'] ?? null) ? $parsed['issues'] : [];
         $clean = [];
         foreach ($issues as $it) {
@@ -636,11 +683,10 @@ switch ($action) {
             ['role' => 'user',   'content' => $usr],
         ]);
         if (!$res['ok']) { json_out(['error' => $res['error']]); }
-        $data = $res['data'];
-        $tokens = (int)($data['usage']['total_tokens'] ?? 0);
+        $tokens = (int)$res['tokens'];
         if ($tokens > 0) { ai_add_usage($db, $auth['user'], $tokens); }
 
-        $parsed = json_decode($data['choices'][0]['message']['content'] ?? '{}', true);
+        $parsed = json_decode(($res['text'] ?? '') ?: '{}', true);
         $issues = is_array($parsed['issues'] ?? null) ? $parsed['issues'] : [];
         $clean = [];
         foreach ($issues as $it) {
