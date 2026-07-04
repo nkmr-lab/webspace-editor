@@ -1,5 +1,8 @@
 # webspace-editor
 
+<img width="1233" height="834" alt="image" src="https://github.com/user-attachments/assets/25692299-f632-408f-a93b-2f5e98f092e4" />
+
+
 **日本語** | [English](#english)
 
 各ユーザーが **自分の `~/public_html` だけ** をブラウザから安全に編集できる、最小構成のセルフホスト型 Web エディタです。多人数(研究室・授業・共用サーバ)で「各自が自分の Web 領域を編集する」用途を想定しています。VS Code Remote を多人数で使うとメモリを食い潰す問題を避けるために作りました。
