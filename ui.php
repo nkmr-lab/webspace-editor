@@ -36,6 +36,21 @@
   #status { padding:4px 12px; font-size:12px; background:var(--panel); border-top:1px solid var(--border); color:#9c9; min-height:22px; }
   input[type=file]{ display:none; }
 
+  /* AIヒント: 波線ではなく左端の💡 + 細い印(控えめ) */
+  .ai-hint-glyph { cursor:help; }
+  .ai-hint-glyph::before { content:'💡'; font-size:11px; margin-left:1px; }
+  .ai-hint-linedeco { background:#e0b34d66; width:3px !important; margin-left:3px; }
+
+  /* AI確認中インジケータ */
+  #aibusy { display:none; position:fixed; top:58px; left:50%; transform:translateX(-50%); z-index:75;
+    background:#252526; border:1px solid var(--accent); color:#e6e6e6; border-radius:20px;
+    padding:8px 16px; font-size:13px; box-shadow:0 6px 20px rgba(0,0,0,.5); align-items:center; gap:10px; }
+  #aibusy.show { display:flex; }
+  #aibusy .spin { width:14px; height:14px; border:2px solid #555; border-top-color:var(--accent);
+    border-radius:50%; animation:aispin .8s linear infinite; }
+  @keyframes aispin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #aibusy .spin { animation:none; } }
+
   /* ---- AI パネル ---- */
   #ai { width:380px; background:var(--panel); border-left:1px solid var(--border); display:none; flex-direction:column; min-height:0; }
   #ai.show { display:flex; }
@@ -136,7 +151,7 @@
 <?php if (!empty($ai_gen_allowed)): ?>
   <button onclick="toggleAI()">🤖 AI</button>
 <?php endif; ?>
-  <button onclick="aiCheck()" title="AIが問題点をヒントで指摘します（答えは言いません・学習用）">🔎 AIヒント</button>
+  <button id="aihintbtn" onclick="aiCheck()" title="AIが問題点をヒントで指摘します（答えは言いません・学習用）">🔎 AIヒント</button>
   <input type="file" id="up" multiple onchange="uploadFile(this)">
   <button onclick="userMenu(event)" title="アカウント">👤 <?= $u ?> ▾</button>
 </header>
@@ -177,6 +192,7 @@
 <div id="status">準備中…</div>
 <div id="rowmenu"></div>
 <div id="dropzone">📥 ここにドロップしてアップロード</div>
+<div id="aibusy"><span class="spin"></span> 🔎 AIがコードを確認しています…</div>
 <div id="unsavedbox" class="modalbox">
   <div class="mb-card">
     <div class="mb-title">未保存の変更があります</div>
@@ -222,7 +238,7 @@ function toggleSide(){ document.getElementById('side').classList.contains('open'
 require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs' }});
 require(['vs/editor/editor.main'], function() {
   editor = monaco.editor.create(document.getElementById('editor'), {
-    value: '// 左のファイルを開いてください', language: 'plaintext', theme: 'vs-dark', automaticLayout: true
+    value: '// 左のファイルを開いてください', language: 'plaintext', theme: 'vs-dark', automaticLayout: true, glyphMargin: true
   });
   window.addEventListener('keydown', e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='s'){ e.preventDefault(); saveFile(); }});
   editor.onDidChangeModelContent(()=>{
@@ -483,25 +499,35 @@ let diffEditor = null, diffApplyFn = null;
 
 function toggleAI(){ document.getElementById('ai').classList.toggle('show'); if(editor) editor.layout(); }
 
-// 学習用: AIが問題点をヒントで指摘 → 該当行に Monaco マーカー(ホバーで吹き出し)
-function clearAiHints(){ if(editor) monaco.editor.setModelMarkers(editor.getModel(), 'ai-hints', []); }
+// 学習用: AIが問題点をヒントで指摘 → 左端の💡(ホバーで吹き出し)+ 細い印。波線は使わない。
+let aiDecos = null;
+function clearAiHints(){ if(aiDecos){ aiDecos.clear(); aiDecos=null; } }
 async function aiCheck(){
   if(PREVIEWING || !CURFILE){ S('チェックするファイルを開いてください'); return; }
-  S('AIがヒントを確認中…');
-  let d;
+  const btn=document.getElementById('aihintbtn'), busy=document.getElementById('aibusy');
+  const orig=btn.textContent; btn.disabled=true; btn.textContent='🔎 確認中…'; busy.classList.add('show'); S('AIがコードを確認中…');
+  let d=null;
   try{
     const r=await fetch('?action=aicheck',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF':CSRF},body:JSON.stringify({content:editor.getValue(), filename:CURFILE})});
     d=await r.json();
-  }catch(e){ S('通信エラー: '+e.message); return; }
+  }catch(e){ S('通信エラー: '+e.message); }
+  finally{ btn.disabled=false; btn.textContent=orig; busy.classList.remove('show'); }
+  if(!d) return;
   if(d.error){ S('⚠ '+d.error); return; }
-  const sev={error:monaco.MarkerSeverity.Error, warn:monaco.MarkerSeverity.Warning, info:monaco.MarkerSeverity.Info};
-  const markers=(d.issues||[]).map(it=>({
-    startLineNumber:Math.max(1,it.line), endLineNumber:Math.max(1,it.line),
-    startColumn:1, endColumn:1000, message:'💡 '+it.hint, severity:sev[it.severity]||monaco.MarkerSeverity.Info
-  }));
-  monaco.editor.setModelMarkers(editor.getModel(), 'ai-hints', markers);
+  clearAiHints();
+  const decos=(d.issues||[]).map(it=>{
+    const ln=Math.max(1, it.line);
+    return { range:new monaco.Range(ln,1,ln,1), options:{
+      isWholeLine:true,
+      glyphMarginClassName:'ai-hint-glyph',
+      glyphMarginHoverMessage:{ value:'💡 '+it.hint },
+      linesDecorationsClassName:'ai-hint-linedeco',
+      overviewRuler:{ color:'#e0b34d', position:monaco.editor.OverviewRulerLane.Right }
+    }};
+  });
+  aiDecos = editor.createDecorationsCollection(decos);
   if(d.usage){ document.getElementById('aiusage').textContent=d.usage.today+' / '+d.usage.cap+' tok'; }
-  S(markers.length ? ('AIヒント '+markers.length+'件：該当行にマウスを乗せると表示（答えではなくヒントです）') : 'AIは目立った問題を見つけませんでした（保証はしません）');
+  S(decos.length ? ('AIヒント '+decos.length+'件：左端の 💡 にマウスを乗せると表示（答えではなくヒントです）') : 'AIは目立った問題を見つけませんでした（保証はしません）');
 }
 const aimsgs = ()=>document.getElementById('aimsgs');
 function aiScroll(){ const e=aimsgs(); e.scrollTop=e.scrollHeight; }
