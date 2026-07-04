@@ -235,6 +235,20 @@ function openSide(){ document.getElementById('side').classList.add('open'); docu
 function closeSide(){ document.getElementById('side').classList.remove('open'); document.getElementById('sideBackdrop').classList.remove('show'); }
 function toggleSide(){ document.getElementById('side').classList.contains('open') ? closeSide() : openSide(); }
 
+// ---- URLに現在の状態(フォルダ/開いているファイル)を反映 → リロードで復元 ----
+function syncUrl(){
+  const parts=[];
+  if(CWD) parts.push('d='+encodeURIComponent(CWD));
+  if(CURFILE) parts.push('f='+encodeURIComponent(CURFILE));
+  history.replaceState(null, '', location.pathname + (parts.length ? '#'+parts.join('&') : ''));
+}
+async function restoreFromUrl(){
+  const p=new URLSearchParams(location.hash.replace(/^#/,''));
+  const d=p.get('d')||'', f=p.get('f')||'';
+  try{ await loadDir(d); }catch(e){ await loadDir(''); }
+  if(f){ try{ await openFile(f, f.split('/').pop()); }catch(e){} }
+}
+
 require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs' }});
 require(['vs/editor/editor.main'], function() {
   editor = monaco.editor.create(document.getElementById('editor'), {
@@ -247,8 +261,7 @@ require(['vs/editor/editor.main'], function() {
     if(d !== DIRTY){ DIRTY = d; setCurLabel(); }
   });
   window.addEventListener('beforeunload', e=>{ if(DIRTY){ e.preventDefault(); e.returnValue=''; } });
-  loadDir('');
-  if(isMobile()) openSide();   // スマホは最初にファイル一覧を出す
+  restoreFromUrl().then(()=>{ if(isMobile() && !CURFILE) openSide(); });   // URLから状態復元。スマホは一覧を出す
 });
 
 function langOf(name){
@@ -287,6 +300,7 @@ async function loadDir(path){
     list.appendChild(row);
   }
   S('一覧: '+d.items.length+'件');
+  syncUrl();
 }
 async function postAct(action, fields){
   const fd=new FormData(); fd.append('csrf',CSRF);
@@ -316,7 +330,7 @@ function showPreview(rel, name, type){
   p.querySelector('.pv-name').textContent=name;
   p.querySelector('.pv-dl').href='?action=download&path='+encodeURIComponent(rel);
   document.getElementById('editor').style.display='none'; p.style.display='flex';
-  S('プレビュー: '+rel);
+  S('プレビュー: '+rel); syncUrl();
 }
 async function openFile(rel, name){
   if(!(await guardUnsaved())) return;   // 未保存があれば確認
@@ -326,7 +340,7 @@ async function openFile(rel, name){
     showEditorPane(); PREVIEWING=false;
     CURFILE = rel; SAVED_CONTENT = txt;
     monaco.editor.setModelLanguage(editor.getModel(), langOf(name));
-    editor.setValue(txt); DIRTY=false; clearAiHints(); S('開いた: '+rel); setCurLabel();
+    editor.setValue(txt); DIRTY=false; clearAiHints(); S('開いた: '+rel); setCurLabel(); syncUrl();
     if(isMobile()) closeSide();   // スマホ: ファイルを開いたらファイラーを隠す
   }catch(e){ S('読込エラー: '+e.message); }
 }
@@ -358,7 +372,7 @@ async function newFile(){
   CURFILE = (CWD?CWD+'/':'')+name; SAVED_CONTENT='';
   monaco.editor.setModelLanguage(editor.getModel(), langOf(name));
   editor.setValue(''); DIRTY=false; clearAiHints(); S('新規: '+CURFILE+' （保存すると作成されます）');
-  setCurLabel('📄 '+CURFILE+'（新規・未保存）');
+  setCurLabel('📄 '+CURFILE+'（新規・未保存）'); syncUrl();
 }
 async function newDir(){
   const name = prompt('新規フォルダ名'); if(!name) return;
