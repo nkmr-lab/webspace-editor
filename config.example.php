@@ -21,6 +21,8 @@ return [
     // ---- Optional: AI assistant (OpenAI). Leave key empty to disable the feature. ----
     'openai_api_key'     => '',
     'ai_daily_token_cap' => 100000,   // per-user daily token cap
+    // Users who get only the "AI hint" tool (educational), not the generative AI (e.g. beginners):
+    'ai_hint_only_users' => [],
     // Map UI model choices -> API model ids (adjust to models you have access to):
     'openai_models'      => ['mini' => 'gpt-4o-mini', 'codex' => 'gpt-4o', 'strong' => 'gpt-4o'],
 

@@ -133,7 +133,10 @@
   <button onclick="saveFile()" title="保存 (Ctrl+S)">💾 保存</button>
   <button onclick="openCurrentInBrowser()" title="実物URLを新規タブで開く(実行確認)">🌐 表示</button>
   <button onclick="newMenu(event)" title="新規作成 / アップロード">＋ 新規 ▾</button>
+<?php if (!empty($ai_gen_allowed)): ?>
   <button onclick="toggleAI()">🤖 AI</button>
+<?php endif; ?>
+  <button onclick="aiCheck()" title="AIが問題点をヒントで指摘します（答えは言いません・学習用）">🔎 AIヒント</button>
   <input type="file" id="up" multiple onchange="uploadFile(this)">
   <button onclick="userMenu(event)" title="アカウント">👤 <?= $u ?> ▾</button>
 </header>
@@ -307,7 +310,7 @@ async function openFile(rel, name){
     showEditorPane(); PREVIEWING=false;
     CURFILE = rel; SAVED_CONTENT = txt;
     monaco.editor.setModelLanguage(editor.getModel(), langOf(name));
-    editor.setValue(txt); DIRTY=false; S('開いた: '+rel); setCurLabel();
+    editor.setValue(txt); DIRTY=false; clearAiHints(); S('開いた: '+rel); setCurLabel();
     if(isMobile()) closeSide();   // スマホ: ファイルを開いたらファイラーを隠す
   }catch(e){ S('読込エラー: '+e.message); }
 }
@@ -338,7 +341,7 @@ async function newFile(){
   showEditorPane(); PREVIEWING=false;
   CURFILE = (CWD?CWD+'/':'')+name; SAVED_CONTENT='';
   monaco.editor.setModelLanguage(editor.getModel(), langOf(name));
-  editor.setValue(''); DIRTY=false; S('新規: '+CURFILE+' （保存すると作成されます）');
+  editor.setValue(''); DIRTY=false; clearAiHints(); S('新規: '+CURFILE+' （保存すると作成されます）');
   setCurLabel('📄 '+CURFILE+'（新規・未保存）');
 }
 async function newDir(){
@@ -479,6 +482,27 @@ let aiBusy = false;
 let diffEditor = null, diffApplyFn = null;
 
 function toggleAI(){ document.getElementById('ai').classList.toggle('show'); if(editor) editor.layout(); }
+
+// 学習用: AIが問題点をヒントで指摘 → 該当行に Monaco マーカー(ホバーで吹き出し)
+function clearAiHints(){ if(editor) monaco.editor.setModelMarkers(editor.getModel(), 'ai-hints', []); }
+async function aiCheck(){
+  if(PREVIEWING || !CURFILE){ S('チェックするファイルを開いてください'); return; }
+  S('AIがヒントを確認中…');
+  let d;
+  try{
+    const r=await fetch('?action=aicheck',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF':CSRF},body:JSON.stringify({content:editor.getValue(), filename:CURFILE})});
+    d=await r.json();
+  }catch(e){ S('通信エラー: '+e.message); return; }
+  if(d.error){ S('⚠ '+d.error); return; }
+  const sev={error:monaco.MarkerSeverity.Error, warn:monaco.MarkerSeverity.Warning, info:monaco.MarkerSeverity.Info};
+  const markers=(d.issues||[]).map(it=>({
+    startLineNumber:Math.max(1,it.line), endLineNumber:Math.max(1,it.line),
+    startColumn:1, endColumn:1000, message:'💡 '+it.hint, severity:sev[it.severity]||monaco.MarkerSeverity.Info
+  }));
+  monaco.editor.setModelMarkers(editor.getModel(), 'ai-hints', markers);
+  if(d.usage){ document.getElementById('aiusage').textContent=d.usage.today+' / '+d.usage.cap+' tok'; }
+  S(markers.length ? ('AIヒント '+markers.length+'件：該当行にマウスを乗せると表示（答えではなくヒントです）') : 'AIは目立った問題を見つけませんでした（保証はしません）');
+}
 const aimsgs = ()=>document.getElementById('aimsgs');
 function aiScroll(){ const e=aimsgs(); e.scrollTop=e.scrollHeight; }
 

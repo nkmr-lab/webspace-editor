@@ -326,6 +326,26 @@ function ai_openai_call(array $CONFIG, string $model, array $messages): array {
     return ['ok'=>true, 'data'=>$j];
 }
 
+// tool無し・JSON応答固定のプレーン呼び出し(AIヒントチェック用)
+function ai_openai_plain(array $CONFIG, string $model, array $messages): array {
+    $ch = curl_init('https://api.openai.com/v1/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $CONFIG['openai_api_key'], 'Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode([
+            'model' => $model,
+            'messages' => $messages,
+            'response_format' => ['type' => 'json_object'],
+        ], JSON_UNESCAPED_UNICODE),
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
+    ]);
+    $raw = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
+    if ($raw === false) { return ['ok'=>false, 'error'=>'network: ' . $err]; }
+    $j = json_decode($raw, true);
+    if ($code !== 200) { return ['ok'=>false, 'error'=>'openai ' . $code . ': ' . ($j['error']['message'] ?? substr((string)$raw,0,200))]; }
+    return ['ok'=>true, 'data'=>$j];
+}
+
 // ================= ルーティング =================
 if ($action === 'login') { do_login($CONFIG); }
 if ($action === 'oauth_callback') { do_oauth_callback($CONFIG); }
@@ -334,6 +354,9 @@ if ($action === 'logout') { $_SESSION = []; session_destroy(); header('Location:
 // --- ここより下は全て認証必須 ---
 $auth = require_auth($CONFIG);
 $base = user_base($CONFIG, $auth['user']);
+
+// AI生成機能(🤖 提案/編集)の可否。hint_only に載っている人は「🔎 AIヒント」のみ許可(初学者向け)。
+$ai_gen_allowed = !in_array($auth['user'], $CONFIG['ai_hint_only_users'] ?? [], true);
 
 // 多層防御: 認証済み以降のデータ操作は「本人の base + アップロード用tmp」だけに
 // open_basedir を実時間で絞る。パス閉じ込め(safe_*)にバグがあっても他人のhomeへ届かない。
@@ -490,6 +513,7 @@ switch ($action) {
 
     case 'ai':
         check_csrf();
+        if (!$ai_gen_allowed) { json_out(['error' => 'このアカウントでは生成AIは使えません。「🔎 AIヒント」を使ってください。']); }
         if (empty($CONFIG['openai_api_key'])) { json_out(['error' => 'AI未設定です(サーバに openai_api_key が未登録)']); }
         $body = json_decode(file_get_contents('php://input'), true);
         if (!is_array($body)) { http_response_code(400); exit('bad json'); }
@@ -531,6 +555,52 @@ switch ($action) {
             'model'   => $model,
             'usage'   => ['today' => $used + $tokens, 'cap' => $cap, 'this_call' => $tokens],
         ]);
+
+    case 'aicheck':
+        // 学習用: AIが問題点を「ヒント」で指摘(答えは言わない)。行ごとの注釈をJSONで返す。
+        check_csrf();
+        if (empty($CONFIG['openai_api_key'])) { json_out(['error' => 'AI未設定です']); }
+        $body = json_decode(file_get_contents('php://input'), true);
+        $content = (string)($body['content'] ?? '');
+        $filename = (string)($body['filename'] ?? 'file');
+        if (trim($content) === '') { json_out(['issues' => []]); }
+
+        $cap = (int)($CONFIG['ai_daily_token_cap'] ?? 100000);
+        try { $db = ai_db(); } catch (Throwable $e) { json_out(['error' => 'usage db error']); }
+        if (ai_used_today($db, $auth['user']) >= $cap) { json_out(['error' => '本日のAI利用上限に達しました。']); }
+
+        $models = ai_models($CONFIG);
+        $model = $models['mini'] ?? 'gpt-4o-mini';
+
+        $numbered = '';
+        foreach (explode("\n", $content) as $i => $l) { $numbered .= ($i + 1) . "\t" . $l . "\n"; }
+
+        $sys = "あなたは学習支援の先生です。学生のコードの問題点を『指摘』しますが、"
+             . "答え(修正後のコードそのもの)は絶対に教えません。どの行に・どんな種類の問題があるかを、"
+             . "学生が自分で気づけるような短いヒントや問いかけの形で示します。"
+             . "対象は文法(パース)エラー、よくあるバグ、危険な書き方。問題が無ければ issues は空配列。"
+             . "厳密なJSONだけを返す: {\"issues\":[{\"line\":整数, \"hint\":\"日本語の短いヒント(答えは言わない)\", \"severity\":\"error|warn|info\"}]}";
+        $usr = "ファイル名: {$filename}\n各行は「行番号<TAB>コード」の形式です。\n----\n{$numbered}";
+
+        $res = ai_openai_plain($CONFIG, $model, [
+            ['role' => 'system', 'content' => $sys],
+            ['role' => 'user',   'content' => $usr],
+        ]);
+        if (!$res['ok']) { json_out(['error' => $res['error']]); }
+        $data = $res['data'];
+        $tokens = (int)($data['usage']['total_tokens'] ?? 0);
+        if ($tokens > 0) { ai_add_usage($db, $auth['user'], $tokens); }
+
+        $parsed = json_decode($data['choices'][0]['message']['content'] ?? '{}', true);
+        $issues = is_array($parsed['issues'] ?? null) ? $parsed['issues'] : [];
+        $clean = [];
+        foreach ($issues as $it) {
+            $ln = (int)($it['line'] ?? 0);
+            if ($ln < 1) continue;
+            $sev = in_array(($it['severity'] ?? ''), ['error', 'warn', 'info'], true) ? $it['severity'] : 'info';
+            $clean[] = ['line' => $ln, 'hint' => (string)($it['hint'] ?? ''), 'severity' => $sev];
+        }
+        json_out(['issues' => $clean, 'usage' => ['today' => ai_used_today($db, $auth['user']), 'cap' => $cap]]);
 
     case 'app':
     default:
