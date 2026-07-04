@@ -527,8 +527,9 @@ async function aiCheck(){
   let d=null;
   try{
     const r=await fetch('?action=aicheck',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF':CSRF},body:JSON.stringify({content:editor.getValue(), filename:CURFILE})});
+    if(!r.ok){ const t=await r.text(); throw new Error(t==='csrf' ? 'セッションが切れました。Ctrl+Shift+R で再読み込みしてください' : (t||('HTTP '+r.status))); }
     d=await r.json();
-  }catch(e){ S('通信エラー: '+e.message); }
+  }catch(e){ S('⚠ '+e.message); }
   finally{ btn.disabled=false; btn.textContent=orig; busy.classList.remove('show'); }
   if(!d) return;
   if(d.error){ S('⚠ '+d.error); return; }
@@ -614,8 +615,9 @@ async function callAI(){
   let data;
   try{
     const r=await fetch('?action=ai',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF':CSRF},body:JSON.stringify(payload)});
+    if(!r.ok){ const t=await r.text(); throw new Error(t==='csrf' ? 'セッションが切れました。Ctrl+Shift+R で再読み込みしてください' : (t||('HTTP '+r.status))); }
     data=await r.json();
-  }catch(e){ addBubble('sys','通信エラー: '+e.message); setBusy(false); return; }
+  }catch(e){ addBubble('sys','⚠ '+e.message); setBusy(false); return; }
   if(data.error){ addBubble('sys','⚠ '+data.error); setBusy(false); return; }
   if(data.usage){ document.getElementById('aiusage').textContent=data.usage.today+' / '+data.usage.cap+' tok'; }
 
