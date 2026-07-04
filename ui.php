@@ -501,7 +501,7 @@ function toggleAI(){ document.getElementById('ai').classList.toggle('show'); if(
 
 // 学習用: AIが問題点をヒントで指摘 → 左端の💡(ホバーで吹き出し)+ 細い印。波線は使わない。
 let aiDecos = null;
-function clearAiHints(){ if(aiDecos){ aiDecos.clear(); aiDecos=null; } }
+function clearAiHints(){ if(aiDecos){ aiDecos.clear(); aiDecos=null; } if(editor) monaco.editor.setModelMarkers(editor.getModel(), 'ai-hints', []); }
 async function aiCheck(){
   if(PREVIEWING || !CURFILE){ S('チェックするファイルを開いてください'); return; }
   const btn=document.getElementById('aihintbtn'), busy=document.getElementById('aibusy');
@@ -515,19 +515,29 @@ async function aiCheck(){
   if(!d) return;
   if(d.error){ S('⚠ '+d.error); return; }
   clearAiHints();
-  const decos=(d.issues||[]).map(it=>{
+  const model=editor.getModel(), markers=[], decos=[];
+  for(const it of (d.issues||[])){
     const ln=Math.max(1, it.line);
-    return { range:new monaco.Range(ln,1,ln,1), options:{
-      isWholeLine:true,
-      glyphMarginClassName:'ai-hint-glyph',
-      glyphMarginHoverMessage:{ value:'💡 '+it.hint },
-      linesDecorationsClassName:'ai-hint-linedeco',
-      overviewRuler:{ color:'#e0b34d', position:monaco.editor.OverviewRulerLane.Right }
-    }};
-  });
+    if(it.severity==='error'){
+      // 重大(文法エラー等)は赤波線で目立たせる
+      markers.push({ startLineNumber:ln, endLineNumber:ln, startColumn:1,
+        endColumn:Math.max(model.getLineMaxColumn(ln), 2),
+        message:'💡 '+it.hint, severity:monaco.MarkerSeverity.Error });
+    } else {
+      // それ以外は左端の💡(控えめ)
+      decos.push({ range:new monaco.Range(ln,1,ln,1), options:{
+        isWholeLine:true, glyphMarginClassName:'ai-hint-glyph',
+        glyphMarginHoverMessage:{ value:'💡 '+it.hint },
+        linesDecorationsClassName:'ai-hint-linedeco',
+        overviewRuler:{ color:'#e0b34d', position:monaco.editor.OverviewRulerLane.Right }
+      }});
+    }
+  }
+  monaco.editor.setModelMarkers(model, 'ai-hints', markers);
   aiDecos = editor.createDecorationsCollection(decos);
   if(d.usage){ document.getElementById('aiusage').textContent=d.usage.today+' / '+d.usage.cap+' tok'; }
-  S(decos.length ? ('AIヒント '+decos.length+'件：左端の 💡 にマウスを乗せると表示（答えではなくヒントです）') : 'AIは目立った問題を見つけませんでした（保証はしません）');
+  const total=markers.length+decos.length;
+  S(total ? ('AIヒント '+total+'件（重大は赤波線、その他は左端の 💡・ホバーで表示）') : 'AIは目立った問題を見つけませんでした（保証はしません）');
 }
 const aimsgs = ()=>document.getElementById('aimsgs');
 function aiScroll(){ const e=aimsgs(); e.scrollTop=e.scrollHeight; }
