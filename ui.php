@@ -42,7 +42,7 @@
   .ai-hint-linedeco { background:#e0b34d66; width:3px !important; margin-left:3px; }
   .ai-hint-linedeco-err { background:#e0555566; width:3px !important; margin-left:3px; }
   .ai-glyph-sql, .ai-glyph-sql-err { cursor:help; }
-  .ai-glyph-sql::before { content:'🗄'; font-size:11px; margin-left:1px; }
+  .ai-glyph-sql::before { content:'🔬'; font-size:11px; margin-left:1px; }
   .ai-glyph-sql-err::before { content:'🚨'; font-size:11px; margin-left:1px; }
 
   /* AI確認中インジケータ */
@@ -155,8 +155,7 @@
 <?php if (!empty($ai_gen_allowed)): ?>
   <button onclick="toggleAI()">🤖 AI</button>
 <?php endif; ?>
-  <button id="aihintbtn" onclick="aiCheck()" title="AIが問題点をヒントで指摘します（答えは言いません・学習用）">🔎 AIヒント</button>
-  <button id="sqlbtn" onclick="sqlCheck()" title="コード内のSQLが、入力によって実際どんな文字列になるか（展開結果）を見せます">🗄 SQL展開</button>
+  <button id="aihintbtn" onclick="aiCheck()" title="問題点のヒント + SQLや出力の展開例をAIが表示（答えは言いません・学習用）">🔎 AIヒント</button>
   <input type="file" id="up" multiple onchange="uploadFile(this)">
   <button onclick="userMenu(event)" title="アカウント">👤 <?= $u ?> ▾</button>
 </header>
@@ -546,7 +545,7 @@ async function aiCheck(){
       // それ以外は左端の💡(控えめ)
       decos.push({ range:new monaco.Range(ln,1,ln,1), options:{
         isWholeLine:true, glyphMarginClassName:'ai-hint-glyph',
-        glyphMarginHoverMessage:{ value:'💡 '+it.hint },
+        glyphMarginHoverMessage:{ value: it.hint },
         linesDecorationsClassName:'ai-hint-linedeco',
         overviewRuler:{ color:'#e0b34d', position:monaco.editor.OverviewRulerLane.Right }
       }});
@@ -563,7 +562,7 @@ async function aiCheck(){
 async function sqlCheck(){
   if(PREVIEWING || !CURFILE){ S('チェックするファイルを開いてください'); return; }
   const btn=document.getElementById('sqlbtn'), busy=document.getElementById('aibusy');
-  const orig=btn.textContent; btn.disabled=true; btn.textContent='🗄 展開中…'; busy.classList.add('show'); S('AIがSQLを展開中…');
+  const orig=btn.textContent; btn.disabled=true; btn.textContent='🔬 プレビュー中…'; busy.classList.add('show'); S('AIが出力を確認中…');
   let d=null;
   try{
     const r=await fetch('?action=sqlcheck',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF':CSRF},body:JSON.stringify({content:editor.getValue(), filename:CURFILE})});
@@ -585,7 +584,7 @@ async function sqlCheck(){
   });
   aiDecos = editor.createDecorationsCollection(decos);
   if(d.usage){ document.getElementById('aiusage').textContent=d.usage.today+' / '+d.usage.cap+' tok'; }
-  S(decos.length ? ('SQLの展開 '+decos.length+'件：該当行の左端アイコン(🗄/🚨)にマウスを乗せると展開結果が出ます') : '展開対象のSQL（変数を埋め込む組み立て）は見つかりませんでした');
+  S(decos.length ? ('出力プレビュー '+decos.length+'件：該当行の左端アイコン(🔬/🚨)にマウスを乗せると結果が出ます') : 'プレビュー対象（変数を埋め込むSQLや出力）は見つかりませんでした');
 }
 const aimsgs = ()=>document.getElementById('aimsgs');
 function aiScroll(){ const e=aimsgs(); e.scrollTop=e.scrollHeight; }
