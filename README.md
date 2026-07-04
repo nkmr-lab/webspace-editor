@@ -19,7 +19,11 @@
 - **検索** — ファイル名 / 中身(grep)。ユーザーの領域内に閉じ込め。
 - **ドラッグ&ドロップ + 複数アップロード。**
 - **その場で実行確認** — ファイルの実際の公開 URL を新規タブで開いて即動作確認。
-- **AI 補助(任意・OpenAI)** — 「AI は頭脳、手はユーザー」。モデルは編集を提案したりファイルを開く/作る許可を求めたりし、**ファイル操作は必ず同じ閉じ込め + ユーザーの明示クリックを通ります**。ユーザーごとの日次トークン上限あり。`openai_api_key` を空にすれば無効化。
+- **AI 補助(任意・OpenAI)** — 2種類:
+  - **生成アシスタント**: 「AI は頭脳、手はユーザー」。編集を提案・ファイルを開く/作る許可を求め、**ファイル操作は必ず閉じ込め + ユーザーの明示クリックを通ります**。
+  - **AI ヒント(学習用)**: 答えは言わず、問題点を該当行に指摘(文法エラーは**赤波線**、その他は**💡**)。さらに **SQL や echo / 手組み JSON・HTML の"実際の出力"を、ふつうの入力ときわどい入力の2例で展開表示**して、エスケープ漏れ等に自分で気づかせます。
+  - ユーザーごとの日次トークン上限。`ai_hint_only_users` に載せたユーザー(初学者など)は**生成AIをオフ・ヒントのみ**に制限可。`openai_api_key` を空にすれば AI 全体を無効化。
+- **URL に状態を反映** — 開いているフォルダ/ファイルが URL(ハッシュ)に入り、**リロードで復元・ブックマーク/共有**が可能。
 - **モバイル対応** — ファイル一覧がドロワーになり、ファイルを開くと自動で隠れます。
 
 ## セキュリティモデル
@@ -74,7 +78,11 @@ A tiny self-hosted web editor that lets each authenticated user browse and edit 
 - **Search** — by filename or file contents (grep), confined to the user's tree.
 - **Drag & drop + multi-upload.**
 - **Run it** — open the file's real public URL in a new tab to test immediately.
-- **AI assist (optional, OpenAI)** — "the AI is the brain, the user is the hands": the model proposes edits / asks to open or create files, and **every filesystem effect goes through the same confinement + an explicit user click**. Per-user daily token cap. Leave `openai_api_key` empty to disable.
+- **AI assist (optional, OpenAI)** — two flavors:
+  - **Generative assistant**: "the AI is the brain, the user is the hands" — it proposes edits / asks to open or create files, and **every filesystem effect goes through the same confinement + an explicit user click**.
+  - **AI hints (learning mode)**: never gives the answer — it flags issues on the relevant line (**red squiggle** for syntax errors, **💡** for hints) and **shows what your SQL / `echo` / hand-built JSON actually outputs**, for a normal input and a tricky input, so students spot missing escaping themselves.
+  - Per-user daily token cap. Users listed in `ai_hint_only_users` (e.g. beginners) get **hints only, no generative AI**. Leave `openai_api_key` empty to disable all AI.
+- **State in the URL** — the open folder/file is reflected in the URL hash, so **reload restores it** and links are shareable/bookmarkable.
 - **Mobile mode** — the file list becomes a drawer; opening a file hides it.
 
 ## Security model
