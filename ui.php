@@ -156,7 +156,7 @@
   <button onclick="toggleAI()">🤖 AI</button>
 <?php endif; ?>
   <button id="aihintbtn" onclick="aiCheck()" title="AIが問題点をヒントで指摘します（答えは言いません・学習用）">🔎 AIヒント</button>
-  <button id="sqlbtn" onclick="sqlCheck()" title="コード内のSQLの危険（エスケープ/インジェクション）を指摘し、悪い入力での展開例を見せます">🗄 SQLチェック</button>
+  <button id="sqlbtn" onclick="sqlCheck()" title="コード内のSQLが、入力によって実際どんな文字列になるか（展開結果）を見せます">🗄 SQL展開</button>
   <input type="file" id="up" multiple onchange="uploadFile(this)">
   <button onclick="userMenu(event)" title="アカウント">👤 <?= $u ?> ▾</button>
 </header>
@@ -563,7 +563,7 @@ async function aiCheck(){
 async function sqlCheck(){
   if(PREVIEWING || !CURFILE){ S('チェックするファイルを開いてください'); return; }
   const btn=document.getElementById('sqlbtn'), busy=document.getElementById('aibusy');
-  const orig=btn.textContent; btn.disabled=true; btn.textContent='🗄 確認中…'; busy.classList.add('show'); S('AIがSQLを確認中…');
+  const orig=btn.textContent; btn.disabled=true; btn.textContent='🗄 展開中…'; busy.classList.add('show'); S('AIがSQLを展開中…');
   let d=null;
   try{
     const r=await fetch('?action=sqlcheck',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF':CSRF},body:JSON.stringify({content:editor.getValue(), filename:CURFILE})});
@@ -585,7 +585,7 @@ async function sqlCheck(){
   });
   aiDecos = editor.createDecorationsCollection(decos);
   if(d.usage){ document.getElementById('aiusage').textContent=d.usage.today+' / '+d.usage.cap+' tok'; }
-  S(decos.length ? ('SQLの指摘 '+decos.length+'件：該当行の左端アイコン(🗄/🚨)にマウスを乗せると展開例が出ます') : 'AIは目立ったSQLの問題を見つけませんでした（保証はしません）');
+  S(decos.length ? ('SQLの展開 '+decos.length+'件：該当行の左端アイコン(🗄/🚨)にマウスを乗せると展開結果が出ます') : '展開対象のSQL（変数を埋め込む組み立て）は見つかりませんでした');
 }
 const aimsgs = ()=>document.getElementById('aimsgs');
 function aiScroll(){ const e=aimsgs(); e.scrollTop=e.scrollHeight; }
