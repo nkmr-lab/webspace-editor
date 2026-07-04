@@ -1,0 +1,7 @@
+# Never commit real config (contains OAuth secret + real emails/PII)
+config.php
+/etc/**
+# backups / local junk
+*.bak
+*.preSSO.bak
+.DS_Store

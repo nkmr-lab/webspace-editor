@@ -1,0 +1,46 @@
+; /etc/php-fpm.d/fileapp.conf
+; file.nkmr.io 専用の PHP-FPM プール。
+; 既定 www プール(user=apache)とは別に、専用ユーザ fileapp で動かす。
+;  - 学生 public_html への書込は「fileapp ユーザへの ACL 付与」だけで成立させ、
+;    apache(=他の全アプリ)には書込権限を渡さない = 書込境界を本アプリに限定。
+;  - open_basedir でファイルシステム到達範囲を最小化(多層防御)。
+[fileapp]
+user = fileapp
+group = fileapp
+
+; httpd(apache)がこのソケットに fcgi 接続できるよう owner/group を apache に
+listen = /run/php-fpm/fileapp.sock
+listen.owner = apache
+listen.group = apache
+listen.mode = 0660
+
+; アクセスは軽いので ondemand(遊休時はプロセスを畳む)
+pm = ondemand
+pm.max_children = 10
+pm.process_idle_timeout = 30s
+pm.max_requests = 500
+
+; .php 以外は実行させない
+security.limit_extensions = .php
+
+; ---- セッションは専用ディレクトリへ(fileapp 所有) ----
+php_value[session.save_handler] = files
+php_value[session.save_path]    = /var/lib/php/fpm-fileapp/session
+
+; ---- ハードニング ----
+; 到達可能なパスを最小化。/home は「入口」だけ許可し、アプリ側で実行時に本人baseへ更に絞る。
+php_admin_value[open_basedir] = /var/www/fileapp/:/etc/fileapp/:/home/:/tmp/:/var/lib/php/fpm-fileapp/
+; OS コマンド実行系を封じる(curl は OAuth に使うので残す)
+php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec,proc_nice,proc_get_status
+; 外部URLの fopen 系は無効(HTTP は curl 経由のみ)
+php_admin_flag[allow_url_fopen]    = off
+php_admin_flag[allow_url_include]  = off
+; エラーはログのみ(画面へ出さない)
+php_admin_flag[display_errors]     = off
+php_admin_flag[log_errors]         = on
+php_admin_value[error_log]         = /var/log/php-fpm/fileapp-error.log
+
+; ---- アップロード上限(必要に応じて調整) ----
+php_admin_value[upload_max_filesize] = 32M
+php_admin_value[post_max_size]       = 33M
+php_admin_value[upload_tmp_dir]      = /tmp

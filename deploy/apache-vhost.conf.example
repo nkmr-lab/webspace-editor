@@ -1,0 +1,50 @@
+<VirtualHost *:80>
+    ServerName file.nkmr.io
+    RewriteEngine On
+    RewriteRule ^ https://file.nkmr.io%{REQUEST_URI} [R=301,L]
+</VirtualHost>
+<VirtualHost *:443>
+    ServerName file.nkmr.io
+    DocumentRoot /var/www/fileapp
+    DirectoryIndex index.php
+
+    <Directory /var/www/fileapp>
+        Options -Indexes -FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    # ui.php は直アクセス禁止(index.php から include のみ)
+    <Files "ui.php">
+        Require all denied
+    </Files>
+
+    # このvhostのPHPは専用FPMプール fileapp(user=fileapp)へ。
+    # 既定の php.conf は www.sock を指すが、ここでの FilesMatch がこのvhostだけ上書きする。
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/run/php-fpm/fileapp.sock|fcgi://localhost"
+    </FilesMatch>
+
+    # ---- セキュリティヘッダ ----
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "no-referrer"
+    Header always set Strict-Transport-Security "max-age=31536000"
+    # Monaco を CDN(cdnjs)から読むため script/style は cdnjs を許可。
+    # Monaco は eval/worker を使うので 'unsafe-eval' と blob: が必須。
+    # ※ 将来 Monaco 自己ホスト + inlineハンドラ除去で 'unsafe-inline'/'unsafe-eval' を外して締める。
+    Header always set Content-Security-Policy "default-src 'self'; \
+script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com blob:; \
+style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; \
+worker-src blob:; \
+font-src 'self' data: https://cdnjs.cloudflare.com; \
+img-src 'self' data:; \
+connect-src 'self' https://cdnjs.cloudflare.com; \
+frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"
+
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/wildcard.nkmr.io/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/wildcard.nkmr.io/privkey.pem
+    ErrorLog logs/fileapp_error.log
+    CustomLog logs/fileapp_access.log combined
+</VirtualHost>
