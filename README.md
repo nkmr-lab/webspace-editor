@@ -55,6 +55,17 @@ deploy/
 
 ホスト固有の値(`file.nkmr.io`、セッション Cookie ドメイン、`base_url()` など)は現状 `index.php` にハードコードされています。自分のホストに置き換えてください。
 
+## 単一サーバ / 管理者モード
+
+各ユーザの `~/public_html` ではなく、**1つの絶対パスを直接編集**したい場合(自分のサーバのサイトを管理する等)は、config で:
+
+```php
+'fixed_base' => '/var/www/html',   // 全員がここを編集(ユーザ毎モデルより優先)
+```
+
+編集は `fixed_base` 配下に**閉じ込め**られます(範囲は設定した dir に限定)。ユーザ毎に別 dir を割り当てるなら `user_bases`(例: `['admin' => '/var/www/html']`)。
+※ FPM プールの `open_basedir` にその dir を含め、プールユーザに書込権限を付与してください。「🌐 表示」の公開 URL は `public_url_tpl`(`{user}` 省略可、例 `https://mysite.example/`)で調整。
+
 ## 注意
 
 - 本番の `config.php`(OAuth シークレット + 実在ユーザーのメール)は**絶対にコミットしない**でください。

@@ -139,11 +139,22 @@ function http_get(string $url, string $bearer): string {
 
 // ================= パス閉じ込め (最重要) =================
 function user_base(array $CONFIG, string $user): string {
-    // usernameは配列の値(サーバ側マップ由来)なので信用できるが、念のため厳格チェック
-    if (!preg_match('/^[a-z0-9_][a-z0-9_-]{0,31}$/i', $user)) {
-        http_response_code(400); exit('bad user');
+    // ベースの決め方(上から優先):
+    //  1) user_bases[user] があれば、その絶対パスをそのまま使う(ユーザ毎に任意dir)
+    //  2) fixed_base があれば、全員そこを使う(単一サーバ/管理用。例 /var/www/html)
+    //  3) 既定: home_base/<user>/subdir(各自の public_html に閉じ込め)
+    // どの場合でも $base 配下への閉じ込め(safe_*)は効くので、範囲は設定した base に限定される。
+    if (!empty($CONFIG['user_bases'][$user])) {
+        $base = $CONFIG['user_bases'][$user];
+    } elseif (!empty($CONFIG['fixed_base'])) {
+        $base = $CONFIG['fixed_base'];
+    } else {
+        // usernameがパスの一部になるので厳格チェック
+        if (!preg_match('/^[a-z0-9_][a-z0-9_-]{0,31}$/i', $user)) {
+            http_response_code(400); exit('bad user');
+        }
+        $base = $CONFIG['home_base'] . '/' . $user . '/' . $CONFIG['subdir'];
     }
-    $base = $CONFIG['home_base'] . '/' . $user . '/' . $CONFIG['subdir'];
     $rp = realpath($base);
     if ($rp === false) { http_response_code(500); exit('base not found'); }
     return $rp;

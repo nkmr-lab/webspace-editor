@@ -14,6 +14,12 @@ return [
     // ---- Where each user's editable directory lives: <home_base>/<user>/<subdir> ----
     'home_base' => '/home',
     'subdir'    => 'public_html',
+    // Single-server / admin mode: everyone edits ONE absolute path (e.g. a site docroot).
+    // If set, this wins over the per-user home model above. Editing stays confined to this dir.
+    // (The FPM pool's open_basedir must include it, and the pool user needs write access.)
+    // 'fixed_base' => '/var/www/html',
+    // Or assign an arbitrary dir per user (wins over fixed_base):
+    // 'user_bases' => ['admin' => '/var/www/html', 'alice' => '/srv/alice'],
 
     // ---- "Open in browser" button: {user} is replaced with the username ----
     'public_url_tpl' => 'https://{user}.example.com/',
