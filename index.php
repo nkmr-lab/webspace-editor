@@ -157,6 +157,8 @@ function user_base(array $CONFIG, string $user): string {
     }
     $rp = realpath($base);
     if ($rp === false) { http_response_code(500); exit('base not found'); }
+    // 安全弁: ベースをファイルシステムのルートにはさせない(全ファイル開放の防止)。
+    if ($rp === '' || $rp === '/') { http_response_code(500); exit('base must not be the filesystem root'); }
     return $rp;
 }
 
