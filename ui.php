@@ -148,6 +148,7 @@
   <button id="menuToggle" onclick="toggleSide()" title="ファイル一覧">☰</button>
   <b>file.nkmr.io</b>
   <span id="curfile" title="開いているファイル">（ファイル未選択）</span>
+  <button id="closebtn" onclick="closeFile()" title="開いているファイルを閉じる" style="display:none;padding:3px 8px;">✕</button>
   <span class="sp"></span>
   <button onclick="saveFile()" title="保存 (Ctrl+S)">💾 保存</button>
   <button onclick="openCurrentInBrowser()" title="実物URLを新規タブで開く(実行確認)">🌐 表示</button>
@@ -432,8 +433,18 @@ function closeRowMenu(){ document.getElementById('rowmenu').classList.remove('sh
 function downloadItem(rel){ window.location.href='?action=download&path='+encodeURIComponent(rel); }
 function setCurLabel(txt){
   const el=document.getElementById('curfile');
+  document.getElementById('closebtn').style.display = CURFILE ? '' : 'none';
   if(txt){ el.textContent=txt; return; }
   el.textContent = CURFILE ? ((DIRTY?'● ':'')+'📄 '+CURFILE) : '（ファイル未選択）';
+}
+// 開いているファイルを明示的に閉じる(未保存なら確認)
+async function closeFile(){
+  if(!CURFILE) return;
+  if(!(await guardUnsaved())) return;
+  showEditorPane(); PREVIEWING=false;
+  CURFILE=null; SAVED_CONTENT=''; editor.setValue(''); DIRTY=false;
+  clearAiHints(); setCurLabel(); syncUrl();
+  S('ファイルを閉じました');
 }
 // 未保存があれば 保存/破棄/やめる を聞く。続行してよければ true。
 function askUnsaved(name){
