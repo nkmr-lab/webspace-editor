@@ -446,7 +446,7 @@ switch ($action) {
                 'perms' => substr(sprintf('%o', fileperms($full)), -3),
             ];
         }
-        json_out(['base_user' => $auth['user'], 'path' => $rel, 'items' => $items, 'csrf' => $_SESSION['csrf']]);
+        json_out(['base_user' => $auth['user'], 'base' => $base, 'path' => $rel, 'items' => $items, 'csrf' => $_SESSION['csrf']]);
 
     case 'read':
         $f = safe_existing($base, $_GET['path'] ?? '');

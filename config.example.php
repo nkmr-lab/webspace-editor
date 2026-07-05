@@ -20,6 +20,13 @@ return [
     // 'fixed_base' => '/var/www/html',
     // Or assign an arbitrary dir per user (wins over fixed_base):
     // 'user_bases' => ['admin' => '/var/www/html', 'alice' => '/srv/alice'],
+    //
+    // ⚠ Whole-server "learning" mode: fixed_base => '/' lets you edit ANY file on the server
+    //    (a red banner is shown in the UI). Insecure by design — use ONLY for learning /
+    //    experiments, NEVER in production, and lock down WHO can reach this app (IP allowlist,
+    //    very few accounts). The FPM pool must NOT restrict open_basedir, and the pool user
+    //    needs read/write for whatever you edit.
+    // 'fixed_base' => '/',
 
     // ---- "Open in browser" button: {user} is replaced with the username ----
     'public_url_tpl' => 'https://{user}.example.com/',

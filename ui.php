@@ -11,6 +11,7 @@
   header { display:flex; align-items:center; gap:12px; padding:8px 14px; background:var(--panel); border-bottom:1px solid var(--border); }
   header b { color:var(--accent); }
   header .sp { flex:1; }
+  #modewarn { color:#ff6b6b; font-size:12px; font-weight:700; }
   #curfile { font-family:ui-monospace,monospace; font-size:12px; color:#9cdcfe; background:#1e1e1e; border:1px solid var(--border); border-radius:6px; padding:3px 9px; max-width:38vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   header a, header button { color:var(--fg); background:#333; border:1px solid var(--border); border-radius:6px; padding:5px 10px; text-decoration:none; cursor:pointer; font-size:13px; white-space:nowrap; }
   header button:hover, header a:hover { background:#3a3a3a; }
@@ -147,6 +148,7 @@
 <header>
   <button id="menuToggle" onclick="toggleSide()" title="ファイル一覧">☰</button>
   <b>file.nkmr.io</b>
+  <span id="modewarn"></span>
   <span id="curfile" title="開いているファイル">（ファイル未選択）</span>
   <button id="closebtn" onclick="closeFile()" title="開いているファイルを閉じる" style="display:none;padding:3px 8px;">✕</button>
   <span class="sp"></span>
@@ -284,7 +286,11 @@ async function loadDir(path){
   const r = await api('list', {path});
   const d = await r.json();
   CSRF = d.csrf; CWD = d.path; BASEUSER = d.base_user;
-  document.getElementById('crumbs').textContent = '/'+d.base_user+'/public_html/'+ (d.path||'');
+  const cr=document.getElementById('crumbs');
+  cr.textContent = '🏠 /'+(d.path||'');                 // ベース(🏠)からの相対パス
+  cr.title = (d.base||'') + (d.path?('/'+d.path):'');   // 実際の絶対パスはツールチップに
+  // 全ファイル編集モード(ベースが / )の警告
+  document.getElementById('modewarn').textContent = (d.base === '/') ? '⚠ 全ファイル編集モード（学習用・危険）' : '';
   const list = document.getElementById('list'); list.innerHTML='';
   if(d.path){ const up=document.createElement('div'); up.className='row dir'; up.textContent='📁 ..';
     up.onclick=()=>loadDir(d.path.split('/').slice(0,-1).join('/')); list.appendChild(up); }
